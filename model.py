@@ -3,7 +3,11 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.models import Sequential
-from keras.layers import Flatten, Dense
+from keras.layers import Flatten, Dense, Lambda, Dropout, Activation
+from keras.layers.convolutional import Conv2D, MaxPooling2D, AveragePooling2D
+
+def normalize_input(X):
+    return X / 255.0 - 0.5
 
 lines = []
 with open('data/driving_log.csv') as csvfile:
@@ -33,7 +37,15 @@ print(X_train.shape)
 print(Y_train.shape)
 
 model = Sequential()
-model.add(Flatten(input_shape = (160, 320, 3)))
+
+model.add(Lambda(lambda x: x / 255.0 - 0.5, input_shape=(160, 320, 3)))
+model.add(Conv2D(filters=6, kernel_size=(3, 3), activation='relu'))
+model.add(AveragePooling2D(pool_size=(4,4)))
+model.add(Conv2D(filters=16, kernel_size=(3, 3), activation='relu'))
+model.add(AveragePooling2D(pool_size=(4,4)))
+model.add(Flatten())
+model.add(Dense(units=120, activation='relu'))
+model.add(Dense(units=84, activation='relu'))
 model.add(Dense(1))
 
 # Loss = Mean Square Error
@@ -42,3 +54,4 @@ model.compile(loss = 'mse', optimizer = 'adam')
 model.fit(X_train, Y_train, validation_split = 0.2, shuffle = True, nb_epoch = 5)
 
 model.save('model.h5')
+print("### Finished ###")
