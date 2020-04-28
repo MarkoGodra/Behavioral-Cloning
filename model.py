@@ -9,6 +9,14 @@ from keras.layers.convolutional import Conv2D, MaxPooling2D, AveragePooling2D
 def normalize_input(X):
     return X / 255.0 - 0.5
 
+def augment_data(images, labels):
+    # Flip images over Y axis
+    augmented_images = np.array(np.fliplr(images))
+    # Flip labels * -1
+    augmented_labels = -labels
+
+    return (np.concatenate((images, augmented_images)), np.concatenate((labels, augmented_labels)))
+    
 lines = []
 with open('data/driving_log.csv') as csvfile:
     reader = csv.reader(csvfile)
@@ -33,6 +41,9 @@ for line in lines:
 X_train = np.array(images)
 Y_train = np.array(measurements)
 
+# Augment data by fliping each image
+X_train, Y_train = augment_data(X_train, Y_train)
+
 print(X_train.shape)
 print(Y_train.shape)
 
@@ -45,7 +56,9 @@ model.add(Conv2D(filters=16, kernel_size=(3, 3), activation='relu'))
 model.add(AveragePooling2D(pool_size=(4,4)))
 model.add(Flatten())
 model.add(Dense(units=120, activation='relu'))
+model.add(Dropout(0.5))
 model.add(Dense(units=84, activation='relu'))
+model.add(Dropout(0.5))
 model.add(Dense(1))
 
 # Loss = Mean Square Error
