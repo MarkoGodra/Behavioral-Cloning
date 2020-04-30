@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.models import Sequential
-from keras.layers import Flatten, Dense, Lambda, Dropout, Activation
+from keras.layers import Flatten, Dense, Lambda, Dropout, Activation, Cropping2D
 from keras.layers.convolutional import Conv2D, MaxPooling2D, AveragePooling2D
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
@@ -88,26 +88,35 @@ validation_generator = generator_routine(validation_data, batch_size = BATCH_SIZ
 model = Sequential()
 
 model.add(Lambda(lambda x: x / 255.0 - 0.5, input_shape=(160, 320, 3)))
-model.add(Conv2D(filters=6, kernel_size=(3, 3), activation='relu'))
-model.add(AveragePooling2D(pool_size=(4,4)))
-model.add(Conv2D(filters=16, kernel_size=(3, 3), activation='relu'))
-model.add(AveragePooling2D(pool_size=(4,4)))
+model.add(Cropping2D(cropping = ((75,20), (0,0))))
+model.add(Conv2D(filters = 6, kernel_size = (3, 3), activation = 'relu'))
+model.add(AveragePooling2D(pool_size = (4,4)))
+model.add(Conv2D(filters = 16, kernel_size = (3, 3), activation = 'relu'))
+model.add(AveragePooling2D(pool_size = (4,4)))
 model.add(Flatten())
-model.add(Dense(units=120, activation='relu'))
+model.add(Dense(units = 120, activation='relu'))
 model.add(Dropout(0.5))
-model.add(Dense(units=84, activation='relu'))
+model.add(Dense(units = 84, activation='relu'))
 model.add(Dropout(0.5))
 model.add(Dense(1))
 
 # Loss = Mean Square Error
 # Optimizer = adam
 model.compile(loss = 'mse', optimizer = 'adam')
-model.fit_generator(train_generator,
+fitting_history = model.fit_generator(train_generator,
                     steps_per_epoch = math.ceil(len(train_data) / BATCH_SIZE),
                     validation_data = validation_generator,
                     validation_steps = math.ceil(len(validation_data) / BATCH_SIZE),
                     epochs= EPOCHS,
                     verbose = 1)
+
+plt.plot(fitting_history.history['loss'])
+plt.plot(fitting_history.history['val_loss'])
+plt.title('model mean squared error loss')
+plt.ylabel('mean squared error loss')
+plt.xlabel('epoch')
+plt.legend(['training set', 'validation set'], loc='upper right')
+plt.show()
 
 model.save('model.h5')
 print("### Finished ###")
