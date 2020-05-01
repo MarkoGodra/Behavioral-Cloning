@@ -16,8 +16,9 @@ csv_file = dataset_path_prefix + 'driving_log.csv'
 # Correction factor for steering angle for left and right camera frames
 CORRECTION_FACTOR = 0.2
 
-BATCH_SIZE = 32
-EPOCHS = 5
+BATCH_SIZE = 128
+EPOCHS = 10
+dropout_rate = 0.5
 
 def normalize_input(X):
     return X / 255.0 - 0.5
@@ -48,8 +49,8 @@ def generator_routine(samples, batch_size=32):
     num_samples = len(samples)
     while 1:
         shuffle(samples)
-        for offset in range(0, num_samples, batch_size // 2):
-            batch_samples = samples[offset:offset+batch_size // 2]
+        for offset in range(0, num_samples, batch_size):
+            batch_samples = samples[offset:offset+batch_size]
 
             images = []
             measurements = []
@@ -71,7 +72,7 @@ def generator_routine(samples, batch_size=32):
             y_train = np.array(measurements)
 
             # Augment data, to avoid left turning bias
-            X_train, y_train = augment_data(X_train, y_train)
+            # X_train, y_train = augment_data(X_train, y_train)
 
             yield shuffle(X_train, y_train)
 
@@ -87,17 +88,22 @@ validation_generator = generator_routine(validation_data, batch_size = BATCH_SIZ
 # Model definition
 model = Sequential()
 
+
+
 model.add(Lambda(lambda x: x / 255.0 - 0.5, input_shape=(160, 320, 3)))
 model.add(Cropping2D(cropping = ((75,20), (0,0))))
-model.add(Conv2D(filters = 6, kernel_size = (3, 3), activation = 'relu'))
-model.add(AveragePooling2D(pool_size = (4,4)))
-model.add(Conv2D(filters = 16, kernel_size = (3, 3), activation = 'relu'))
-model.add(AveragePooling2D(pool_size = (4,4)))
+model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'relu'))
+model.add(Conv2D(36, (5, 5), subsample = (2, 2), activation = 'relu'))
+model.add(Conv2D(48, (5, 5), subsample = (2, 2), activation = 'relu'))
+model.add(Conv2D(64, (3, 3), activation = 'relu'))
+model.add(Conv2D(64, (3, 3), activation = 'relu'))
 model.add(Flatten())
-model.add(Dense(units = 120, activation='relu'))
-model.add(Dropout(0.5))
-model.add(Dense(units = 84, activation='relu'))
-model.add(Dropout(0.5))
+model.add(Dense(100, activation='relu'))
+model.add(Dropout(dropout_rate))
+model.add(Dense(50, activation='relu'))
+model.add(Dropout(dropout_rate))
+model.add(Dense(10, activation='relu'))
+model.add(Dropout(dropout_rate))
 model.add(Dense(1))
 
 # Loss = Mean Square Error
