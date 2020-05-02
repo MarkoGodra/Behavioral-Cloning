@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.models import Sequential
-from keras.layers import Flatten, Dense, Lambda, Dropout, Activation, Cropping2D
+from keras.layers import Flatten, Dense, Lambda, Dropout, Activation, Cropping2D, ELU
 from keras.layers.convolutional import Conv2D, MaxPooling2D, AveragePooling2D
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
@@ -17,8 +17,8 @@ csv_file = dataset_path_prefix + 'driving_log.csv'
 CORRECTION_FACTOR = 0.2
 
 BATCH_SIZE = 128
-EPOCHS = 10
-dropout_rate = 0.5
+EPOCHS = 3
+dropout_rate = 0.2
 
 def normalize_input(X):
     return X / 255.0 - 0.5
@@ -59,7 +59,7 @@ def generator_routine(samples, batch_size=32):
                 image = cv2.imread(batch_sample[0])
 
                 if image is None:
-                    print('Failed to load image')
+                    print('Failed to load image:', batch_sample)
                     exit()
 
                 # Load steering wheel angle
@@ -77,7 +77,24 @@ def generator_routine(samples, batch_size=32):
             yield shuffle(X_train, y_train)
 
 # Get tuples (img_path, steering_wheel_angle) for whole dataset with all 3 cameras (Angle is already corrected)
-train_data, validation_data = load_dataset(csv_file, dataset_path_prefix, correction_factor = CORRECTION_FACTOR)
+train_data, validation_data = load_dataset('my-data/driving_log.csv', 'my-data/', correction_factor = CORRECTION_FACTOR)
+udacity_data_train, udacity_data_validation = load_dataset('data/driving_log.csv', 'data/', correction_factor = CORRECTION_FACTOR)
+# train_data_recovery, validation_data_recovery = load_dataset('data2/driving_log.csv', 'data2/')
+# train_data_shape_recovery, validation_data_sharp_recovery = load_dataset('data3/driving_log.csv', 'data3/')
+# train_data4, val_data4 = load_dataset('data4/driving_log.csv', 'data4/')
+
+train_data = train_data + udacity_data_train
+validation_data = validation_data + udacity_data_validation
+
+train_data = shuffle(train_data)
+validation_data = shuffle(validation_data)
+
+# train_data.extend(train_data_recovery)
+# validation_data.extend(validation_data_recovery)
+# train_data.extend(train_data_shape_recovery)
+# validation_data.extend(validation_data_sharp_recovery)
+# train_data.extend(train_data4)
+# validation_data.extend(val_data4)
 
 # Prepare training data generator 
 train_generator = generator_routine(train_data, batch_size = BATCH_SIZE)
@@ -88,8 +105,6 @@ validation_generator = generator_routine(validation_data, batch_size = BATCH_SIZ
 # Model definition
 model = Sequential()
 
-
-
 model.add(Lambda(lambda x: x / 255.0 - 0.5, input_shape=(160, 320, 3)))
 model.add(Cropping2D(cropping = ((75,20), (0,0))))
 model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'relu'))
@@ -98,12 +113,15 @@ model.add(Conv2D(48, (5, 5), subsample = (2, 2), activation = 'relu'))
 model.add(Conv2D(64, (3, 3), activation = 'relu'))
 model.add(Conv2D(64, (3, 3), activation = 'relu'))
 model.add(Flatten())
-model.add(Dense(100, activation='relu'))
-model.add(Dropout(dropout_rate))
-model.add(Dense(50, activation='relu'))
-model.add(Dropout(dropout_rate))
-model.add(Dense(10, activation='relu'))
-model.add(Dropout(dropout_rate))
+model.add(Dense(100))
+model.add(ELU())
+# model.add(Dropout(dropout_rate))
+model.add(Dense(50))
+model.add(ELU())
+# model.add(Dropout(dropout_rate))
+model.add(Dense(10))
+model.add(ELU())
+# model.add(Dropout(dropout_rate))
 model.add(Dense(1))
 
 # Loss = Mean Square Error
