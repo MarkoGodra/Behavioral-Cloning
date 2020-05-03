@@ -12,16 +12,13 @@ from datetime import datetime
 
 # Correction factor for steering angle for left and right camera frames
 CORRECTION_FACTOR = 0.2
-BATCH_SIZE = 128
-EPOCHS = 3
+BATCH_SIZE = 32
+EPOCHS = 10
+DROPOUT_RATE = 0.2
 
 # Normalization
 def normalize_input(X):
     return X / 255.0 - 0.5
-
-# Data augmentation, flips all data w.r.t. y axis
-def augment_data(images, labels):
-    return (np.concatenate((images, np.fliplr(images))), np.concatenate((labels, labels * -1)))
 
 # Loads dataset
 # Returns -> list of (image_path, meassurement)
@@ -43,10 +40,15 @@ def load_dataset(csv_file, path, correction_factor = 0.2):
             # Extract value of steering wheel angle
             measurement = float(line[3])
 
-            # Append data with angle correction for left and right images
-            data.extend(((image_center, measurement), 
-                    (image_left,  measurement + correction_factor),
-                    (image_right, measurement - correction_factor)))
+            # Append data with angle correction for left and right images and mark it as normal
+            data.extend(((image_center, measurement, 'n'), 
+                    (image_left,  measurement + correction_factor, 'n'),
+                    (image_right, measurement - correction_factor, 'n')))
+
+            # Append data with with flipped angle and mark it for flipping
+            data.extend(((image_center, (-1 * measurement), 'f'), 
+                    (image_left,  (-1 * measurement) + correction_factor, 'f'),
+                    (image_right, (-1 * measurement) - correction_factor, 'f')))        
 
     # Reserve 20% of dataset for validation
     train_data, validation_data = train_test_split(data, test_size=0.2)
@@ -81,6 +83,9 @@ def generator_routine(samples, batch_size=32):
                     print('Failed to load image:', batch_sample)
                     exit()
 
+                if batch_sample[2] == 'f':
+                    image = np.fliplr(image)
+
                 # Load steering wheel angle
                 measurement = float(batch_sample[1])
 
@@ -95,12 +100,12 @@ def generator_routine(samples, batch_size=32):
             yield shuffle(X_train, y_train)
 
 # Get tuples (img_path, steering_wheel_angle) for whole dataset with all 3 cameras (Angle is already corrected)
-udacity_data_train, udacity_data_validation = load_dataset('data/driving_log.csv', 'data/', correction_factor = CORRECTION_FACTOR)
+# udacity_data_train, udacity_data_validation = load_dataset('data/driving_log.csv', 'data/', correction_factor = CORRECTION_FACTOR)
 train_data, validation_data = load_dataset('my-data/driving_log.csv', 'my-data/', correction_factor = CORRECTION_FACTOR)
 
 # Combine recovery data with given udacity data
-train_data = train_data + udacity_data_train
-validation_data = validation_data + udacity_data_validation
+# train_data = train_data + udacity_data_train
+# validation_data = validation_data + udacity_data_validation
 
 # Shuffle newly generated datasets
 train_data = shuffle(train_data)
@@ -114,18 +119,21 @@ validation_generator = generator_routine(validation_data, batch_size = BATCH_SIZ
 model = Sequential()
 model.add(Lambda(lambda x: x / 255.0 - 0.5, input_shape=(160, 320, 3)))
 model.add(Cropping2D(cropping = ((75,20), (0,0))))
-model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'relu'))
-model.add(Conv2D(36, (5, 5), subsample = (2, 2), activation = 'relu'))
-model.add(Conv2D(48, (5, 5), subsample = (2, 2), activation = 'relu'))
-model.add(Conv2D(64, (3, 3), activation = 'relu'))
-model.add(Conv2D(64, (3, 3), activation = 'relu'))
+model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'elu'))
+model.add(Conv2D(36, (5, 5), subsample = (2, 2), activation = 'elu'))
+model.add(Conv2D(48, (5, 5), subsample = (2, 2), activation = 'elu'))
+model.add(Conv2D(64, (3, 3), activation = 'elu'))
+model.add(Conv2D(64, (3, 3), activation = 'elu'))
 model.add(Flatten())
 model.add(Dense(100))
 model.add(ELU())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(50))
 model.add(ELU())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(10))
 model.add(ELU())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(1))
 
 # Loss = Mean Square Error
