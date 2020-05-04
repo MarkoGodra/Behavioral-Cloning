@@ -9,16 +9,20 @@ from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 import math
 from datetime import datetime
+from random import randrange
 
 # Correction factor for steering angle for left and right camera frames
 CORRECTION_FACTOR = 0.2
 BATCH_SIZE = 32
-EPOCHS = 10
-DROPOUT_RATE = 0.2
+EPOCHS = 15
+DROPOUT_RATE = 0.25
 
 # Normalization
 def normalize_input(X):
     return X / 255.0 - 0.5
+
+def should_sample_stay(rate):
+    return randrange(rate) == 0
 
 # Loads dataset
 # Returns -> list of (image_path, meassurement)
@@ -39,6 +43,14 @@ def load_dataset(csv_file, path, correction_factor = 0.2):
 
             # Extract value of steering wheel angle
             measurement = float(line[3])
+
+            # In order to combat straight driving bias
+            if measurement < 0.5 and measurement > -0.5:
+                # Keep only 25% of total frames where steering wheel angle is -0.5 < x < 0.5
+                # 1 / 4
+                should_stay = should_sample_stay(4)
+                if should_stay is False:
+                    continue
 
             # Append data with angle correction for left and right images and mark it as normal
             data.extend(((image_center, measurement, 'n'), 
@@ -100,12 +112,12 @@ def generator_routine(samples, batch_size=32):
             yield shuffle(X_train, y_train)
 
 # Get tuples (img_path, steering_wheel_angle) for whole dataset with all 3 cameras (Angle is already corrected)
-# udacity_data_train, udacity_data_validation = load_dataset('data/driving_log.csv', 'data/', correction_factor = CORRECTION_FACTOR)
+udacity_data_train, udacity_data_validation = load_dataset('data/driving_log.csv', 'data/', correction_factor = CORRECTION_FACTOR)
 train_data, validation_data = load_dataset('my-data/driving_log.csv', 'my-data/', correction_factor = CORRECTION_FACTOR)
 
 # Combine recovery data with given udacity data
-# train_data = train_data + udacity_data_train
-# validation_data = validation_data + udacity_data_validation
+train_data = train_data + udacity_data_train
+validation_data = validation_data + udacity_data_validation
 
 # Shuffle newly generated datasets
 train_data = shuffle(train_data)
