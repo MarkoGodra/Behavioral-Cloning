@@ -14,7 +14,7 @@ from random import randrange
 # Correction factor for steering angle for left and right camera frames
 CORRECTION_FACTOR = 0.2
 BATCH_SIZE = 32
-EPOCHS = 15
+EPOCHS = 12
 DROPOUT_RATE = 0.25
 
 # Normalization
@@ -46,9 +46,9 @@ def load_dataset(csv_file, path, correction_factor = 0.2):
 
             # In order to combat straight driving bias
             if measurement < 0.5 and measurement > -0.5:
-                # Keep only 25% of total frames where steering wheel angle is -0.5 < x < 0.5
-                # 1 / 4
-                should_stay = should_sample_stay(4)
+                # Keep only 20% of total frames where steering wheel angle is -0.5 < x < 0.5
+                # 1 / 5
+                should_stay = should_sample_stay(5)
                 if should_stay is False:
                     continue
 
