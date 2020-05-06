@@ -5,138 +5,272 @@ import matplotlib.pyplot as plt
 from keras.models import Sequential
 from keras.layers import Flatten, Dense, Lambda, Dropout, Activation, Cropping2D, ELU
 from keras.layers.convolutional import Conv2D, MaxPooling2D, AveragePooling2D
+from keras.optimizers import Adam
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 import math
 from datetime import datetime
 from random import randrange
+from random import randint
+import pandas as pd
+import os
+from imgaug import augmenters as iaa
 
-# Correction factor for steering angle for left and right camera frames
+# Tunable params
 CORRECTION_FACTOR = 0.2
-BATCH_SIZE = 32
-EPOCHS = 12
-DROPOUT_RATE = 0.25
+BATCH_SIZE = 100
+EPOCHS = 20
+DROPOUT_RATE = 0.30
+SINGLE_ANGLE_MAX_COUNT = 400
+
+data_dir = 'data-reverse-recovery'
+
+# Random zoom
+def zoom(image):
+    # Affine translations involve translation, scaling, rotation, shear
+    zoom = iaa.Affine(scale=(1, 1.3))
+    
+    # Apply augmentation - slight zoom
+    image = zoom.augment_image(image)
+
+    return image
+
+# Random translation
+def translate_image(image):
+    # Affine translations involve translation, scaling, rotation, shear
+    translate = iaa.Affine(translate_percent= {"x" : (-0.1, 0.1), "y": (-0.1, 0.1)})
+
+    # Apply augmentation - translation
+    image = translate.augment_image(image)
+
+    return image
+
+# Random brightness
+def change_brightness(image):
+    # Multiply image with random value from specified range
+    brightness = iaa.Multiply((0.25, 1.15))
+
+    # Apply brightness augmentation
+    image = brightness.augment_image(image)
+
+    return image
+
+# Image flipping
+def flip_image(image, steering_angle):
+    # Use cv2 for this
+    image = cv2.flip(image,1)
+
+    # Flip steering angle
+    steering_angle = -steering_angle
+
+    return image, steering_angle
+
+# This function augments image in 4 different ways
+# Each augmentation has 50% chance to be applied
+def random_augment(image, steering_angle):
+    # Do coin flip
+    if coin_flip(2) == True:
+        image = translate_image(image)
+
+    # Do coin flip
+    if coin_flip(2) == True:
+        image = zoom(image)
+
+    # Do coin flip
+    if coin_flip(2) == True:
+        # Random brightness
+        image = change_brightness(image)
+
+    # Do coin flip
+    if coin_flip(2) == True:
+        # Flip image
+        image, steering_angle = flip_image(image, steering_angle)
+    
+    return image, steering_angle
 
 # Normalization
 def normalize_input(X):
     return X / 255.0 - 0.5
 
-def should_sample_stay(rate):
+# Helper function that returns true in 1/rate probability
+def coin_flip(rate):
     return randrange(rate) == 0
 
-# Loads dataset
-# Returns -> list of (image_path, meassurement)
-def load_dataset(csv_file, path, correction_factor = 0.2):
-    # Prepare data list
-    data = []
+# Preprocess image
+def preprocess_image(image):
+    # Crop image to remove sky and hood of car
+    # Isolate ROI
+    image = image[60:135,:,:]
 
-    with open(csv_file) as csvfile:
-        reader = csv.reader(csvfile)
+    # Convert to YUV color space
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
+
+    # Apply blur to supress noise
+    image = cv2.GaussianBlur(image, (3, 3), 0)
+
+    # Resize image to nvidia model native size (66, 200, 3)
+    image = cv2.resize(image, (200, 66))
+
+    # Normalize the image
+    image = image/255
+
+    return image
+    
+# Load data into panda dictionary
+def load_data(data_dir):
+    columns = ['center', 'left', 'right', 'steering', 'throttle', 'reverse', 'speed']
+    data = pd.read_csv(os.path.join(data_dir, 'driving_log.csv'), names = columns)
+    return data
+
+# Helper function for acquiring histogram of steering angles
+def create_histogram(data, number_of_bins = 35):
+    hist, bins = np.histogram(data['steering'], number_of_bins)
+    return hist, bins
+
+# Displays histogram of steering angles for given dataset
+def display_histogram(data, number_of_hist_bins = 35):
+    
+    # Create histogram for steering angle
+    hist, bins = create_histogram(data, number_of_hist_bins)
+    center = (bins[:-1] + bins[1:]) / 2.0
+    plt.bar(center, hist, width = 0.03)
+    plt.show()
+
+# Applies thresholding for all values in dataset to reduce excess count for some values (0 steering angle mostly)
+def apply_threshold_for_straight_driving(data, threshold_value = 500):
+    
+    # Calculate how many bins are present
+    angles = np.array(data['steering'])
+    number_of_unique_angles = np.unique(angles).shape[0]
+
+    # Create histogram with that many bins
+    hist, bins = create_histogram(data, number_of_bins = number_of_unique_angles)
+
+    # Prepare array for indices for removal
+    indices = []
+    # For each bin
+    for i in range(number_of_unique_angles):
         
-        # For each line in csv file
-        for line in reader:
+        # Collect all indcies from current iteration
+        temp_list = []
 
-            # Extract names of each ceneter, left and right image
-            image_center = path + line[0]
-            image_left = path + line[1].strip()
-            image_right = path + line[2].strip()
+        # Find each steering angle that falls into current bin
+        for j in range(len(data['steering'])):
+            # If current angle falls into current bin
+            if data['steering'][j] >= bins[i] and data['steering'][j] <= bins[i + 1]:
+                temp_list.append(j)
+        temp_list = shuffle(temp_list)
+        # Cut steering angles up to threshold value
+        temp_list = temp_list[threshold_value:]
 
-            # Extract value of steering wheel angle
-            measurement = float(line[3])
+        indices.extend(temp_list)
 
-            # In order to combat straight driving bias
-            if measurement < 0.5 and measurement > -0.5:
-                # Keep only 20% of total frames where steering wheel angle is -0.5 < x < 0.5
-                # 1 / 5
-                should_stay = should_sample_stay(5)
-                if should_stay is False:
-                    continue
+    # Now we got indices of all values that fall into bins that exceed threshold and should be removed
+    data.drop(data.index[indices], inplace = True)
+    return data
 
-            # Append data with angle correction for left and right images and mark it as normal
-            data.extend(((image_center, measurement, 'n'), 
-                    (image_left,  measurement + correction_factor, 'n'),
-                    (image_right, measurement - correction_factor, 'n')))
+def get_image_paths_and_steering_angles(data, steering_correction_factor = 0.2):
+    
+    # Prepare lists for ret data
+    image_paths = []
+    angles = []
 
-            # Append data with with flipped angle and mark it for flipping
-            data.extend(((image_center, (-1 * measurement), 'f'), 
-                    (image_left,  (-1 * measurement) + correction_factor, 'f'),
-                    (image_right, (-1 * measurement) - correction_factor, 'f')))        
+    for i in range(len(data)):
+        # Lock dict on i-th item. This is equivavlent of single line from csv split
+        fixed_item = data.iloc[i]
 
-    # Reserve 20% of dataset for validation
-    train_data, validation_data = train_test_split(data, test_size=0.2)
-    return (train_data, validation_data)
+        # NOTE: Maybe flip a coin to check if 0.2 and -0.2 should be added
+        center_im_path = fixed_item[0]
+        left_im_path = fixed_item[1]
+        right_im_path = fixed_item[2]
+        steering = float(fixed_item[3])
 
-# Generator routine - Used for RAM usage reduction, since
-# we can't load all images at once
-def generator_routine(samples, batch_size=32):
-    num_samples = len(samples)
-    while 1: # Neverending loop
+        # Save path for center image
+        image_paths.append(center_im_path)
+        angles.append(steering)
 
-        # Shuffle data samples
-        shuffle(samples)
+        # Save path for left image
+        image_paths.append(left_im_path)
+        angles.append(steering + steering_correction_factor)
+        
+        # Save path for right image
+        image_paths.append(right_im_path)
+        angles.append(steering - steering_correction_factor)
 
-        # For each batch
-        for offset in range(0, num_samples, batch_size):
+    return image_paths, angles
 
-            # Cut of batch of data
-            batch_samples = samples[offset:offset+batch_size]
+def generator(image_paths, steering_angles, batch_size = 32, is_validation = False):
+    # Total number of images in training set
+    number_of_samples = len(image_paths)
+    while True: # Inifinite loop
 
-            images = []
-            measurements = []
+        # Prepare lists for images and steering angles
+        X = []
+        Y = []
 
-            # For each (image_path, meassurement) tuple
-            for batch_sample in batch_samples:
+        # For batch size
+        for i in range(0, batch_size):
 
-                # Load the image
-                image = cv2.imread(batch_sample[0])
+            # Choose random index
+            index = randint(0, number_of_samples - 1)
 
-                # Check if image is read correctly
-                if image is None:
-                    print('Failed to load image:', batch_sample)
-                    exit()
+            # Take steering angle and image at choosen index
+            angle = steering_angles[index]
+            image_path = image_paths[index]
 
-                if batch_sample[2] == 'f':
-                    image = np.fliplr(image)
+            # Read image
+            image = cv2.imread(image_path)
 
-                # Load steering wheel angle
-                measurement = float(batch_sample[1])
+            # If generator is instantiated for training (not validation) then augment image
+            if is_validation is False:
+                image, angle = random_augment(image, angle)
 
-                # Append image and measurements for network input and label
-                images.append(image)
-                measurements.append(measurement)
+            # Preproces image
+            image = preprocess_image(image)
 
-            # Convert data to np.array since this is what keras expect
-            X_train = np.array(images)
-            y_train = np.array(measurements)
+            # Add image and label into batch
+            X.append(image)
+            Y.append(angle)
 
-            yield shuffle(X_train, y_train)
+        # Return batch of images and according angles
+        yield np.array(X), np.array(Y)
 
-# Get tuples (img_path, steering_wheel_angle) for whole dataset with all 3 cameras (Angle is already corrected)
-udacity_data_train, udacity_data_validation = load_dataset('data/driving_log.csv', 'data/', correction_factor = CORRECTION_FACTOR)
-train_data, validation_data = load_dataset('my-data/driving_log.csv', 'my-data/', correction_factor = CORRECTION_FACTOR)
+################ Code starts here ################
 
-# Combine recovery data with given udacity data
-train_data = train_data + udacity_data_train
-validation_data = validation_data + udacity_data_validation
+# Load the dataset
+data = load_data(data_dir)
 
-# Shuffle newly generated datasets
-train_data = shuffle(train_data)
-validation_data = shuffle(validation_data)
+# Display histogram of given dataset to check out balance
+# display_histogram(data)
 
-# Prepare training data generators 
-train_generator = generator_routine(train_data, batch_size = BATCH_SIZE)
-validation_generator = generator_routine(validation_data, batch_size = BATCH_SIZE)
+# Combat straight driving bias
+thresholded_data = apply_threshold_for_straight_driving(data, 400)
+
+# Checkout histogram after thresholding
+# display_histogram(thresholded_data)
+
+# Load image paths and appropriate steering angles
+image_paths, steering_angles = get_image_paths_and_steering_angles(thresholded_data, CORRECTION_FACTOR)
+
+# Split data to train and validation
+train_im_paths, valid_im_paths, train_angles, valid_angles = train_test_split(image_paths, steering_angles, test_size = 0.2)
+
+# NOTE: At this moment there are two really high peaks around -0.2 and 0.2, maybe this should also be tresholded
+train_generator = generator(train_im_paths, train_angles, BATCH_SIZE)
+valid_generator = generator(valid_im_paths, valid_angles, BATCH_SIZE, is_validation = True)
+
+print('Total number of training samples: ', len(train_im_paths))
+print('Total number of validation samples: ', len(valid_im_paths))
 
 # Model definition
 model = Sequential()
-model.add(Lambda(lambda x: x / 255.0 - 0.5, input_shape=(160, 320, 3)))
-model.add(Cropping2D(cropping = ((75,20), (0,0))))
-model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'elu'))
+model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'elu', input_shape = (66, 200, 3)))
 model.add(Conv2D(36, (5, 5), subsample = (2, 2), activation = 'elu'))
 model.add(Conv2D(48, (5, 5), subsample = (2, 2), activation = 'elu'))
 model.add(Conv2D(64, (3, 3), activation = 'elu'))
 model.add(Conv2D(64, (3, 3), activation = 'elu'))
 model.add(Flatten())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(100))
 model.add(ELU())
 model.add(Dropout(DROPOUT_RATE))
@@ -148,15 +282,23 @@ model.add(ELU())
 model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(1))
 
-# Loss = Mean Square Error
-# Optimizer = adam
-model.compile(loss = 'mse', optimizer = 'adam')
-fitting_history = model.fit_generator(train_generator,
-                    steps_per_epoch = math.ceil(len(train_data) / BATCH_SIZE),
-                    validation_data = validation_generator,
-                    validation_steps = math.ceil(len(validation_data) / BATCH_SIZE),
+# This is default learning rate
+optimizer = Adam(lr=1e-3)
+
+# Compile the model
+model.compile(loss = 'mse', optimizer = optimizer)
+
+# Print model summary
+print(model.summary())
+
+fitting_history = model.fit_generator(
+                    train_generator,
+                    steps_per_epoch = 300,
+                    validation_data = valid_generator,
+                    validation_steps = 200,
                     epochs= EPOCHS,
-                    verbose = 1)
+                    verbose = 1,
+                    shuffle = True)
 
 # Save the parameters for newly formed model
 model.save('model.h5')
