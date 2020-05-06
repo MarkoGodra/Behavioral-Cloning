@@ -20,10 +20,11 @@ The goals / steps of this project are the following:
 [image2]: ./images/sharp-left.jpg "Sharp left"
 [image3]: ./images/sharp-right.jpg "Sharp right"
 [image4]: ./images/recovery.gif "Recovery"
-[image5]: ./images/loss-3-epochs.png "Loss final"
-[image6]: ./images/overfitting-los.png "Overfitting"
-[image7]: ./images/shaky-loss.png "Unstable descent"
+[image5]: ./images/training_loss_06-05-2020-19-46-58.png "Loss final"
 [image8]: ./images/ss-small.png "Cover"
+[image9]: ./images/pre-balancing.png "histo balanced"
+[image10]: ./images/after-balancing.png "histo treshold"
+
 
 ## Rubric Points
 ### Here I will consider the [rubric points](https://review.udacity.com/#!/rubrics/432/view) individually and describe how I addressed each point in my implementation.  
@@ -62,9 +63,9 @@ Model does not include dropout layers, but instead uses small number of epochs i
 
 The model was trained and validated on different data sets to ensure that the model was not overfitting - 20% of dataset is reserved for validation, and 80% was training set. The model was tested by running it through the simulator and ensuring that the vehicle could stay on the track.
 
-The model used an adam optimizer, so the learning rate was not tuned manually.
+The model used an adam optimizer, so the learning rate was not tuned manually it was left at default value of 0.001.
 
-For training data, initially, dataset provided in lessons was used. Model showed solid results on that dataset, but there were some problematic sections of the track where car would run out of drivable section of track. In order to tackle this problem additional dataset was created. New dataset consisted mostly of recovery maneuvers. 
+For training data, initially, dataset provided in lessons was used. Model showed solid results on that dataset, but there were some problematic sections of the track where car would run out of drivable section of track. In order to tackle this problem additional dataset was created. New dataset consisted mostly of recovery maneuvers. Combination of these two sets also did not prove to be enough balanced new third and final dataset was collected which consisted of three laps in each direction and one recovery lap with different recovery maneuvers also in both directions.
 
 For details about how I created the training data, see the next section. 
 
@@ -72,7 +73,7 @@ For details about how I created the training data, see the next section.
 
 ### Detailed Model Architecture and Training Strategy
 
-The overall strategy for deriving a model architecture was to use well knonw and field proven models with possible minor modifications.
+The overall strategy for deriving a model architecture was to use well known and field proven models with possible minor modifications.
 
 LeNet architecture was used as a strating point. 
 In order to gauge how well the model was working, I split my image and steering angle data into a training and validation set. I found that my first model had a high MSE on both training set and validation set. This implied that the model was underfitting. 
@@ -87,6 +88,17 @@ At this point, hyperparameter tweaking was not enough to make car drive whole tr
 
 New dataset was created in order to tackle these problems. Main focus of dataset was to introduce recovery maneuvers, but also to remove left turn bias track had.
 
+In ordert to tackle left turn bias additional dataset was collected. This dataset consisted of three laps in each direction and one lap with recovery maneuvers in each direction. This dataset proved to be much more balanced.
+On following image histogram of present steering angles is shown.
+
+![alt text][image9]
+
+On this histogram we can see that data is no longer left turn biased, but new problem emerged, and that is straight driving bias. This problem was tackled by applying thresholding technique as part of dataset preprocessing (`model.py` function `apply_threshold_for_straight_driving()`). After additional balancing histogram looked much better.
+
+![alt text][image10]
+
+In addition to having balanced dataset, additional augmentaiton was applied which included random slight zooming (up to 30%), slight moving (translation) and brightnes reduction/increase, beside standard flipping.
+
 At the end of the process, the vehicle was able to drive autonomously around the track without leaving the road.
 
 #### Final Model Architecture
@@ -99,28 +111,75 @@ Model is created in model.py file and code can be seen in following snippet.
 
 ```python
 model = Sequential()
-model.add(Lambda(lambda x: x / 255.0 - 0.5, input_shape=(160, 320, 3)))
-model.add(Cropping2D(cropping = ((75,20), (0,0))))
-model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'relu'))
-model.add(Conv2D(36, (5, 5), subsample = (2, 2), activation = 'relu'))
-model.add(Conv2D(48, (5, 5), subsample = (2, 2), activation = 'relu'))
-model.add(Conv2D(64, (3, 3), activation = 'relu'))
-model.add(Conv2D(64, (3, 3), activation = 'relu'))
+model.add(Conv2D(24, (5, 5), subsample = (2, 2), activation = 'elu', input_shape = (66, 200, 3)))
+model.add(Conv2D(36, (5, 5), subsample = (2, 2), activation = 'elu'))
+model.add(Conv2D(48, (5, 5), subsample = (2, 2), activation = 'elu'))
+model.add(Conv2D(64, (3, 3), activation = 'elu'))
+model.add(Conv2D(64, (3, 3), activation = 'elu'))
 model.add(Flatten())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(100))
 model.add(ELU())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(50))
 model.add(ELU())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(10))
 model.add(ELU())
+model.add(Dropout(DROPOUT_RATE))
 model.add(Dense(1))
 ```
 
-As it can be seen in code snippet, input is first normalized in order to shift data to have small mean, close to zero. After that image is cropped in order to isolate region of interest by removing irelevant data (sky, water, trees, etc.)
+Model sumarry:
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+conv2d_1 (Conv2D)            (None, 31, 98, 24)        1824      
+_________________________________________________________________
+conv2d_2 (Conv2D)            (None, 14, 47, 36)        21636     
+_________________________________________________________________
+conv2d_3 (Conv2D)            (None, 5, 22, 48)         43248     
+_________________________________________________________________
+conv2d_4 (Conv2D)            (None, 3, 20, 64)         27712     
+_________________________________________________________________
+conv2d_5 (Conv2D)            (None, 1, 18, 64)         36928     
+_________________________________________________________________
+flatten_1 (Flatten)          (None, 1152)              0         
+_________________________________________________________________
+dropout_1 (Dropout)          (None, 1152)              0         
+_________________________________________________________________
+dense_1 (Dense)              (None, 100)               115300    
+_________________________________________________________________
+elu_1 (ELU)                  (None, 100)               0         
+_________________________________________________________________
+dropout_2 (Dropout)          (None, 100)               0         
+_________________________________________________________________
+dense_2 (Dense)              (None, 50)                5050      
+_________________________________________________________________
+elu_2 (ELU)                  (None, 50)                0         
+_________________________________________________________________
+dropout_3 (Dropout)          (None, 50)                0         
+_________________________________________________________________
+dense_3 (Dense)              (None, 10)                510       
+_________________________________________________________________
+elu_3 (ELU)                  (None, 10)                0         
+_________________________________________________________________
+dropout_4 (Dropout)          (None, 10)                0         
+_________________________________________________________________
+dense_4 (Dense)              (None, 1)                 11        
+=================================================================
+Total params: 252,219
+Trainable params: 252,219
+Non-trainable params: 0
+_________________________________________________________________
 
-After that image is passed through convolutional layers. Stride of 2 was choosen for first 3 convolutional layers, which effectivly reduces size of input further. Last two convolutional layers do not further reduce size of features. In convolutional layers RELU activation was used. After this, output is flatten, and fully connected part of network starts here. In this section of network, ELU activation was choosen since it provided better result and less 'shakey' controlls.
+Input to model is first normalized in order to shift data to have small mean close to zero, but also image is converted to YUV color space as in original paper, ROI is cropped and input image is resized to 200x66x3 in order to fit input size from original paper. This is not done in model itself, but instead in `model.py` in separate function `preprocess_image()`. This function is also applied on deployment of model in `drive.py` before input is fed into model.
 
-Dropout layeres were initially introduced in fully connected section of network, but they proved not be really helpful since they model had less smooth controls when dropout layers were used in trainig. In addition to this higher number of epochs had to be used with them and results were almost the same, but training time was much higher and loss was droping way more slowely even for low dropout rates. Because of this I have choosen to exclude dropout layers from model.
+After that image is passed through convolutional layers. Stride of 2 was choosen for first 3 convolutional layers, which effectivly reduces size of input further. Last two convolutional layers do not further reduce size of features. In convolutional layers ELU activation was used in order to combat dying neurons problem. After this, output is flatten, and fully connected part of network starts here. In this section of network, ELU activation was choosen since it provided better result and less 'shakey' controlls.
+
+Dropout layeres were initially introduced in fully connected section of network, but they proved not be really helpful since they model had less smooth controls when dropout layers were used in trainig. In addition to this higher number of epochs had to be used with them and results were almost the same, but training time was much higher and loss was droping way more slowely even for low dropout rates. After new dataset was introduced and after it was preprocessed, it's size dropped significantly 10536 samples. Now dropout layers had to be used, even data augmentation techniques were introduced in order to prevent overfitting. Dropout rate was set to 30%.
+
+Generator was used during training phase of this model. It was mainly used in order to save RAM, but also to do random data augmentation on the fly. When called, generator would return batch of images and appropriate labels where size is defined by batch size. Generator is implemented in `model.py` in `generator()` function. Same generator was used for trainign and validation samples feeding, where for validation samples, augmentation was not applied on the images. Images and steering wheel angles are chosen by uniformly and randomly from dataset. After one sample is selected, it is randomly augmented and packed inside of batch which is then fed to model.
 
 #### Creation of the Training Set & Training Process
 
@@ -135,34 +194,22 @@ Short demonstration of these scenraios can be seen on gif bellow. Recording star
 
 ![alt text][image4]
 
-After collecting this addition to dataset i ended up with more than 45000 frames, Since i used frames from all 3 cameras (central, left and right with correction factor of 0.2).
+Final dataset consisted of three laps of center drving in both directions and one lap of recovery manuevers previously mentioned, also in both directions. This proved to be very balanced dataset and when it was combined with mentioned data augmentation techniques  proved to be sufficent with around 10.5k samples.
 
-In addition to this, i have also experimented with data augmentation in order to increase dataset size even furter. Suggested method was flipping image w.r.t. y-axis. This indeed increased dataset and removed left turn bias, but also caused controls to become much more shakier. So data augmentation was remove from final model, since these two datasets combined proved to be sufficient.
+As already mentioned around 20% of dataset was used for validation and rest for training process. I have also experimented with different values for batch sizes, and found that 100 batch size worked best in my case. Choosen steps per epochs is 300 training steps. This means that 3000 images are fed in single epoch to the model.
 
-As already mentioned around 20% of dataset was used for validation and rest for training process. I have also experimented with different values for batch sizes, and found that 128 batch size worked best in my case.
-
-I used this training data for training the model. The validation set helped determine if the model was over or under fitting. The ideal number of epochs was 3 because dropout was not used, so overfitting could easily become a problem. Loss over these epochs can be seen on image bellow:
+I used this training data for training the model. The validation set helped determine if the model was over or under fitting. The ideal number of epochs was 20 because dropout was used with around 30% dropout rate, so overfitting was avoided. Loss over these epochs can be seen on image bellow:
 
 ![alt text][image5]
 
-When dropout layers were included in model, loss was reducing slower, so more epochs had to be done, but additional effect of dropout was unstable descent.
+When dropout layers were included in model, loss was reducing slower, so more epochs had to be introduced.
 
-![alt text][image7]
+Adam optimizer was used, so learning rate was not set manually and it was left at default 0.001 value.
 
-When dropout layers were removed from model, and number of epochs was high (10), overfitting is obivious from image bellow.
-
-![alt text][image6]
-
-Adam optimizer was used, so learning rate was not set manually.
-
-Video of car driving one cycle autonomously can be seen [here](https://www.youtube.com/watch?v=zEXP30r2VhA&feature=youtu.be).
+Video of car driving one cycle autonomously can be seen [here](https://www.youtube.com/watch?v=dDdehBeF_eI&feature=youtu.be).
 
 ### Drawbacks and possible improvements.
 
-Model still does not have fully smooth controls, and car can sometimes wander of from track center. In addition to this, car goes close to track edge in some sharp corners, but manages to stay on track.
-
-There are lot of possible improvements that can be done on this project. Additional preprocessing of the images before they are fed to model can be done. This could include for example converting to HSV colorspace, and using only S channel in order to get more clear lines. Gradient thresholding could be applied in order to make borderlines of the road even more clear.
-Bigger dataset could also be collected. I did not utilize second track while i was making this project. That data would sure cause improvement in model's behavior.
-Collecting data while driving on the track counterwise could also provide additional data which could make model more robust. Adding random noise to image could also prove as a good way to increase size of dataset.
+Model still does not have fully smooth controls, and car can sometimes wander of from track center. Model is not able to finish second track as uphill road and very sharp turns seem to be problematic at this stage. Collecting bigger and more balanced dataset and also some parameter tweaking could potentially bring model to completition of second track.
 
 
